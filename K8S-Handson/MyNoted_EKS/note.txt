@@ -1,0 +1,78 @@
+- Create cluster using eksclt:
+eksctl create cluster --name staging --version 1.20 --region ap-east-1 --nodegroup-name standard-workers --node-type t3.micro --nodes 2 --nodes-min 1 --nodes-max 3 --ssh-access --ssh-public-key /root/rsa.pub --managed
+
+- install metric server (to using analytic workload: kubectl top po, node...)
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+- to check HPA work correct, we can create 1 pod busybox to call
+kubectl run -i --tty loader --image=busybox /bin/sh
+
+while true; do wget -q -O- http://<url>; done
+
+- rolling update
+https://blog.container-solutions.com/kubernetes-deployment-strategies
+
+
+- to upgrade node, just create new group node with another name:
+
+eksctl create nodegroup   --cluster staging   --version 1.20   --name standard-nodes-new   --node-type t3.medium   --nodes 1   --nodes-min 1   --nodes-max 2  --region ap-east-1   --ssh-access --ssh-public-key /root/rsa.pub --managed
+
+- k8s create storage class with EBS
+
+cat sc-ebs.yaml
+
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: fast
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: io1
+  zones: ap-east-1a
+  iopsPerGB: "10"
+---
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: slow
+  annotations: 
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+  zones: ap-east-1a
+reclaimPolicy: Retain
+mountOptions:
+  - debug
+
+---
+cat gke-pvc.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc1
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: fast
+  resources:
+    requests:
+      storage: 10Gi
+
+- to rollback previous version 
+when apply maybe add --record: k apply -f deploy-test.yaml  --record
+check history build: kubectl rollout history deploy test
+detail history Build: kubectl rollout history deploy test --revision=3
+rollback: kubectl rollout undo deployment test --to-revision=3
+
+- https://blog.container-solutions.com/kubernetes-deployment-strategies
+
+- https://github.com/infracloudio/kubernetes-autoscaling
+
+- eksctl scale
+eksctl scale nodegroup --cluster=staging --nodes-min 1  --nodes-max 3 --nodes=1 --name=worker-nodes
+
+- cluster auto scaler: work on requested values
+Horizontal pod auto scaler: work on actual values
+

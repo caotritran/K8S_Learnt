@@ -1,0 +1,81 @@
+
+
+- create file policy
+vim cluster-autoscaler-policy.json
+---
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "autoscaling:DescribeAutoScalingGroups",
+                "autoscaling:DescribeAutoScalingInstances",
+                "autoscaling:DescribeLaunchConfigurations",
+                "autoscaling:DescribeTags",
+                "autoscaling:SetDesiredCapacity",
+                "autoscaling:TerminateInstanceInAutoScalingGroup",
+                "ec2:DescribeLaunchTemplateVersions"
+            ],
+            "Resource": "*",
+            "Effect": "Allow"
+        }
+    ]
+}
+
+- create policy
+aws iam create-policy     --policy-name AmazonEKSClusterAutoscalerPolicy     --policy-document file://cluster-autoscaler-policy.json
+
+- create service account
+eksctl create iamserviceaccount   --cluster=staging   --namespace=kube-system   --name=cluster-autoscaler   --attach-policy-arn=arn:aws:iam::710235054459:policy/AmazonEKSClusterAutoscalerPolicy   --override-existing-serviceaccounts   --approve
+
+- create oidc if not yet
+eksctl utils associate-iam-oidc-provider --region=ap-east-1 --cluster=staging --approve
+
+- deloy cluster auto scaler
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml
+
+- annotate service account
+kubectl annotate serviceaccount cluster-autoscaler   -n kube-system   eks.amazonaws.com/role-arn=arn:aws:iam::710235054459:role/eksctl-staging-addon-iamserviceaccount-kube-Role1-GMSTCW7YL7FM
+
+- Patch the deployment to add the cluster-autoscaler.kubernetes.io/safe-to-evict annotation to the Cluster Autoscaler pods with the following command
+kubectl patch deployment cluster-autoscaler \
+  -n kube-system \
+  -p '{"spec":{"template":{"metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict": "false"}}}}}'
+
+
+- edit cluster
+kubectl -n kube-system edit deployment.apps/cluster-autoscaler
+edit cluster name, add more option
+
+- --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/staging
+- --balance-similar-node-groups
+- --skip-nodes-with-system-pods=false
+
+- Set the Cluster Autoscaler image tag to the version that you recorded in the previous step with the following command. Replace 1.20.n with your own value.
+kubectl set image deployment cluster-autoscaler \
+  -n kube-system \
+  cluster-autoscaler=k8s.gcr.io/autoscaling/cluster-autoscaler:v1.20.0
+
+- View your Cluster Autoscaler logs
+
+kubectl -n kube-system logs -f deployment.apps/cluster-autoscaler
+
+```
+I0926 23:15:55.165842       1 static_autoscaler.go:138] Starting main loop
+I0926 23:15:55.166279       1 utils.go:595] No pod using affinity / antiaffinity found in cluster, disabling affinity predicate for this loop
+I0926 23:15:55.166293       1 static_autoscaler.go:294] Filtering out schedulables
+I0926 23:15:55.166330       1 static_autoscaler.go:311] No schedulable pods
+I0926 23:15:55.166338       1 static_autoscaler.go:319] No unschedulable pods
+I0926 23:15:55.166345       1 static_autoscaler.go:366] Calculating unneeded nodes
+I0926 23:15:55.166357       1 utils.go:552] Skipping ip-192-168-3-111.<region-code>.compute.internal - node group min size reached
+I0926 23:15:55.166365       1 utils.go:552] Skipping ip-192-168-71-83.<region-code>.compute.internal - node group min size reached
+I0926 23:15:55.166373       1 utils.go:552] Skipping ip-192-168-60-191.<region-code>.compute.internal - node group min size reached
+I0926 23:15:55.166435       1 static_autoscaler.go:393] Scale down status: unneededOnly=false lastScaleUpTime=2019-09-26 21:42:40.908059094 ...
+I0926 23:15:55.166458       1 static_autoscaler.go:403] Starting scale down
+I0926 23:15:55.166488       1 scale_down.go:706] No candidates for scale down
+
+```
+
+
+

@@ -1,0 +1,101 @@
+- install helm
+
+wget https://get.helm.sh/helm-v3.6.0-linux-amd64.tar.gz
+tar -xvzf helm-v3.6.0-linux-amd64.tar.gz 
+mv linux-amd64/helm /usr/local/bin/helm
+ln -s /usr/local/bin/helm /usr/bin/
+helm help
+
+- helm add repo
+helm repo add rancher-latest https://releases.rancher.com/server-charts/latest
+
+- kubectl create namespace rancher
+
+- install cert manager
+kubectl create namespace cert-manager
+kubectl label namespace cert-manager certmanager.k8s.io/disable-validation=true
+kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v0.15.1/cert-manager.crds.yaml
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm install cert-manager jetstack/cert-manager --version v0.15.1 --namespace cert-manager
+
+kubectl get clusterissuers
+
+- create cluster issuer
+vim cluster-issuers.yaml
+
+```
+apiVersion: cert-manager.io/v1alpha2
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: user@example.com
+    privateKeySecretRef:
+      name: letsencrypt-staging
+    solvers:
+    # An empty 'selector' means that this solver matches all domains
+    - selector: {}
+      http01:
+        ingress:
+          class: nginx
+---
+apiVersion: cert-manager.io/v1alpha2
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # The ACME server URL
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Email address used for ACME registration
+    email: user@example.com
+    # Name of a secret used to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    # An empty 'selector' means that this solver matches all domains
+    - selector: {}
+      http01:
+        ingress:
+          class: nginx
+```
+
+kubectl apply -f cluster-issuers.yaml
+kubectl get clusterissuers
+
+and you should get the following output
+
+NAME                  READY   AGE
+letsencrypt-prod      True    58s
+letsencrypt-staging   True    58s
+
+- install an ingress
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm upgrade --install   ingress-nginx ingress-nginx/ingress-nginx   --namespace ingress-nginx   --set controller.service.type=LoadBalancer   --version 3.12.0   --create-namespace
+kubectl get service ingress-nginx-controller --namespace=ingress-nginx
+
+helm install rancher rancher-latest/rancher   --namespace rancher   --set hostname=rancher.syslife.info ***(I use cloudflare, so not use cert manager to create ssl let's encrypt)***
+
+or 
+helm install rancher rancher-latest/rancher --namespace rancher --set hostname=rancher.hostname.com --set ingress.tls.source=letsEncrypt --set letsEncrypt.email=me@example.org
+
+- Re-check
+kubectl -n rancher rollout status deploy/rancher
+kubectl -n rancher get deploy rancher
+kubectl get service ingress-nginx-controller --namespace=ingress-nginx
+
+- refer:
+
+https://github.com/odytrice/kubernetes/blob/master/rancher.md
+https://github.com/odytrice/kubernetes/blob/master/ingress/nginx.md
+https://github.com/odytrice/kubernetes/blob/master/cert-manager/Readme.md
+https://rancher.com/docs/rancher/v2.x/en/installation/install-rancher-on-k8s/amazon-eks/
+https://rancher.com/docs/rancher/v2.x/en/installation/install-rancher-on-k8s/#install-the-rancher-helm-chart
+
+
+
+
